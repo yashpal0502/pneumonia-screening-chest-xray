@@ -29,6 +29,11 @@ data
 # Logs
 *.log
 
+# Model checkpoints
+results/
+*.pth
+*.pt
+
 # IDEs / Editors
 .vscode/
 .idea/
