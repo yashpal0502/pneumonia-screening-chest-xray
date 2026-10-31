@@ -1,27 +1,43 @@
 # Python
 __pycache__/
 *.py[cod]
-
-# Jupyter
-.ipynb_checkpoints/
+*$py.class
 
 # Virtual environment
 venv/
+.venv/
+env/
+ENV/
+.virtual_documents/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+anaconda_projects
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Environment variables
 .env
+.env.*
 
 # Data
-data/
-*.zip
+data
 
-# Model checkpoints
-*.pth
-*.pt
+# Logs
+*.log
 
-# Results
-results/*.png
-results/*.jpg
-results/*.csv
+# IDEs / Editors
+.vscode/
+.idea/
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
+
+# Python cache / test
+.pytest_cache/
+.coverage
+htmlcov/
