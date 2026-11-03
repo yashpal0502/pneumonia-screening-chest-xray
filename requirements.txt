@@ -1,7 +1,10 @@
-torch
+PyTorch
 torchvision
+MedMNIST
 scikit-learn
+NumPy
 pandas
-numpy
-matplotlib
+Matplotlib
 seaborn
+Pillow
+tqdm
