@@ -1,98 +1,115 @@
-# Pneumonia Screening on Chest X-Rays
+# PneumoniaMNIST Image Classification (EC-417, P19)
 
-Binary pneumonia screening from pediatric chest X-ray images using **PneumoniaMNIST** (MedMNIST v2). The project compares a small CNN trained from scratch, a pretrained ResNet-18, and a class-weighted ResNet-18 with a validation-selected threshold, and uses Grad-CAM to inspect the final model's predictions.
+A weighted, pretrained ResNet-18 reaches **ROC-AUC 0.9771, sensitivity 98.97% and specificity 78.21%** on the PneumoniaMNIST test set, up from a small CNN's 0.9338 / 96.41% / 77.35%.
 
-> **Disclaimer:** This is an educational project. It is not a medical device and must not be used for diagnosis or patient-care decisions.
+> **Educational project, not a clinical tool.** It must not be used for diagnosis or patient-care decisions.
 
-## Results
+## 1. Problem
 
-All numbers are on the official test set (624 images).
+Binary screening: classify a 28×28 pediatric chest X-ray as Normal (0) or Pneumonia (1).
 
-| Metric      | Baseline CNN |   ResNet-18 | Weighted ResNet-18 (final) |
-| ----------- | -----------: | ----------: | -------------------------: |
-| Accuracy    |       89.26% |      84.62% |                 **91.19%** |
-| Sensitivity |       96.41% | **100.00%** |                     98.97% |
-| Specificity |       77.35% |      58.97% |                 **78.21%** |
-| ROC-AUC     |       0.9338 |      0.9639 |                 **0.9771** |
-| Threshold   |         0.50 |        0.50 |                       0.80 |
+The classes are imbalanced, so accuracy alone is not enough. We report **ROC-AUC** (ranking quality at any threshold), **sensitivity** (share of pneumonia cases found) and **specificity** (share of normal cases cleared). The decision threshold is chosen on the validation set, never on the test set.
 
-Confusion matrices (rows = actual, columns = predicted; order Normal, Pneumonia):
+## 2. Data
 
-| Model              |  TN |  FP |  FN |  TP |
-| ------------------ | --: | --: | --: | --: |
-| Baseline CNN       | 181 |  53 |  14 | 376 |
-| ResNet-18          | 138 |  96 |   0 | 390 |
-| Weighted ResNet-18 | 183 |  51 |   4 | 386 |
+- **Source:** PneumoniaMNIST from [MedMNIST v2](https://medmnist.com/v2), derived from the Kermany et al. (2018) pediatric chest X-ray dataset. Loaded with `pip install medmnist`.
+- **Size and format:** 5,856 images, 28×28 grayscale. License: CC BY 4.0 (check the MedMNIST page for current terms).
+- **Split:** the official one, used unchanged: train 4,708, validation 524, test 624.
+- **Class balance:**
 
-The weighted ResNet-18 is the final model: it has the best accuracy, specificity, and ROC-AUC, while missing only 4 pneumonia cases. The unweighted ResNet-18 catches every pneumonia case at the default threshold but produces 96 false positives.
+| Split | Normal | Pneumonia | Pneumonia share |
+|---|---:|---:|---:|
+| Train | 1,214 | 3,494 | 74.2% |
+| Test | 234 | 390 | 62.5% |
 
-## Dataset
+Train counts come from notebook 01; test counts from the confusion matrices. MedMNIST builds the validation set by splitting 9:1 from the source training set, while the test set is a separate source split. This matters for the results below.
 
-PneumoniaMNIST contains 5,856 pediatric chest X-rays at **28×28 grayscale**, labeled `0` (Normal) or `1` (Pneumonia). The official splits are used as provided, with no re-splitting:
+![class distribution](plots/training_set_class_distribution.png)
 
-| Split      | Images |
-| ---------- | -----: |
-| Train      |  4,708 |
-| Validation |    524 |
-| Test       |    624 |
+## 3. Method
 
-## Models
+| Model | What it is |
+|---|---|
+| Baseline CNN | `Conv(1→16) → ReLU → MaxPool → Conv(16→32) → ReLU → MaxPool → Flatten → Linear(1568→64) → ReLU → Linear(64→2)` |
+| ResNet-18 | Pretrained weights; final layer replaced by `Linear(512, 2)`; images resized to 224×224 and copied to 3 channels |
+| + class-weighted loss | A fresh pretrained ResNet-18 trained with weighted cross-entropy. Weights = `n_samples / (2 × class_count)` = **1.939** (Normal) and **0.674** (Pneumonia) |
+| + threshold 0.80 | Thresholds 0.10 to 0.90 were scanned on the validation set; 0.80 was picked from that table, where sensitivity and specificity are nearly equal (96.92% / 97.04%) |
 
-| Model              | Loss                   | Optimizer |   LR | Batch | Epochs |
-| ------------------ | ---------------------- | --------- | ---: | ----: | -----: |
-| Baseline CNN       | Cross-Entropy          | Adam      | 1e-3 |    64 |     20 |
-| ResNet-18          | Cross-Entropy          | Adam      | 1e-4 |    32 |     10 |
-| Weighted ResNet-18 | Weighted Cross-Entropy | Adam      | 1e-4 |    32 |     10 |
+| Model | Loss | Optimizer | LR | Batch | Epochs |
+|---|---|---|---:|---:|---:|
+| Baseline CNN | Cross-entropy | Adam | 0.001 | 64 | 20 |
+| ResNet-18 | Cross-entropy | Adam | 0.0001 | 32 | 10 |
+| Weighted ResNet-18 | Weighted cross-entropy | Adam | 0.0001 | 32 | 10 |
 
-**Baseline CNN:** `Conv(1→16) → ReLU → MaxPool → Conv(16→32) → ReLU → MaxPool → Flatten → Linear(1568→64) → ReLU → Linear(64→2)`, with 3×3 kernels and padding 1.
+## 4. Results
 
-**ResNet-18:** pretrained weights, with the final layer replaced by `nn.Linear(model.fc.in_features, 2)`. Inputs are resized from 28×28 to 224×224 and converted from 1 to 3 channels.
+Test set, 624 images, **one training run per model** (no seeds were fixed, so there are no error bars).
 
-**Weighted ResNet-18:** a fresh pretrained ResNet-18 trained with class-weighted loss to handle class imbalance. The decision threshold (**0.80**) was chosen by evaluating several thresholds on the **validation set only**; the test set was never used for tuning.
+| Model | Threshold | Accuracy | Sensitivity | Specificity | ROC-AUC |
+|---|---:|---:|---:|---:|---:|
+| Trivial (always "pneumonia") | – | 62.50% | 100.00% | 0.00% | 0.5000 |
+| Baseline CNN | 0.50 | 89.26% | 96.41% | 77.35% | 0.9338 |
+| ResNet-18 | 0.50 | 84.62% | 100.00% | 58.97% | 0.9639 |
+| + class-weighted loss | 0.50 | 88.30% | 99.74% | 69.23% | 0.9771 |
+| **+ threshold 0.80 (final)** | **0.80** | **91.19%** | **98.97%** | **78.21%** | **0.9771** |
 
-## Grad-CAM
+The trivial row is computed from the test class counts, not trained.
 
-Grad-CAM heatmaps are generated from `weighted_model.layer4[-1].conv2` for the pneumonia class. The notebook selects true-positive and false-positive test cases at the 0.80 threshold and overlays the heatmaps on the X-rays, to check whether attention falls on plausible chest regions or on borders and artifacts. Grad-CAM is an explainability aid, not evidence of medically correct reasoning.
+| Model | TN | FP | FN | TP |
+|---|---:|---:|---:|---:|
+| Baseline CNN | 181 | 53 | 14 | 376 |
+| ResNet-18 | 138 | 96 | 0 | 390 |
+| + weighted loss (0.50) | 162 | 72 | 1 | 389 |
+| + threshold 0.80 | 183 | 51 | 4 | 386 |
 
-## Repository Structure
+What each change did:
 
-```text
-pneumonia-screening-chest-xray/
-├── notebooks/
-│   ├── 01_data_exploration.ipynb          # load data, class distribution, sample images
-│   ├── 02_cnn_baseline.ipynb              # baseline CNN training and evaluation
-│   ├── 03_resnet18_transfer_learning.ipynb # ResNet-18, weighted loss, threshold selection
-│   └── 04_gradcam.ipynb                   # Grad-CAM on TP / FP test cases
-├── plots/                                 # figures (ROC curve, class distribution, Grad-CAM)
-├── results/                               # saved model weights (.pth)
-├── README.md/
-├── Report.md/
-└── requirements.txt
-```
+- **Pretraining** raised ROC-AUC (0.9338 to 0.9639), but at 0.5 it flagged 96 normal images as pneumonia.
+- **Weighted loss** cut false positives from 96 to 72 and raised specificity from 58.97% to 69.23%.
+- **Threshold 0.80** cut them again to 51, at the cost of 3 more missed pneumonia cases (1 to 4).
+- ROC-AUC does not depend on the threshold, so the 0.9639 to 0.9771 gain comes from the weighted training run. With one seed, run-to-run noise cannot be ruled out.
 
-## Getting Started
+![ROC curve of the baseline CNN](plots/ROC_curve.png)
+
+## 5. Error analysis
+
+Grad-CAM (layer `layer4[-1].conv2`, pneumonia class) was run on the first 5 true positives and first 5 false positives at threshold 0.80 (`plots/gradcam/`).
+
+- In **3 of the 5 false positives** (test indices 28, 30, 44) the strongest activation sits at the top edge of the image, above the lungs, not on lung tissue.
+- In **4 of the 5 true positives and 2 of the 5 false positives** the peak is at the same lower-right edge location. The same hot spot on both correct and wrong predictions suggests the model uses a position or border cue, not only lung appearance.
+- This is a small, hand-inspected sample, so it is a hypothesis and not a proof. Grad-CAM shows what influenced a prediction, not that the region is medically meaningful.
+
+![Grad-CAM true positive](plots/gradcam_for_one_TP.png) ![Grad-CAM false positive](plots/gradcam_for_one_FP.png)
+
+## 6. Limitations and ethics
+
+- **Distribution gap:** at 0.5 the weighted model has 94.81% specificity on validation but 69.23% on test. Validation comes from the training source and test from a separate one, so the 0.80 threshold may not transfer.
+- **Single run:** no seeds fixed, no mean ± std.
+- **Threshold applied to one model:** the CNN and plain ResNet-18 were scored at 0.5 only.
+- **Preprocessing:** no ImageNet mean/std normalization and no data augmentation.
+- **Resolution and data:** 28×28 images hold far less detail than real X-rays; small dataset; no external validation.
+- **Misuse:** a screening score like this could be mistaken for a diagnosis. It is not one.
+
+## 7. Reproduce
 
 ```bash
 pip install -r requirements.txt
+mkdir -p results plots        # results/ is gitignored; notebooks save weights there
+jupyter notebook              # run notebooks/01 to 04 top to bottom, in order
 ```
 
-Run the notebooks in numerical order. Notebook 04 loads the weights saved by notebook 03.
+| Notebook | Purpose |
+|---|---|
+| `01_data_exploration` | data loading, class balance, sample images |
+| `02_cnn_baseline` | baseline CNN, metrics, saves `baseline_cnn.pth` |
+| `03_resnet18_transfer_learning` | ResNet-18, class weights, threshold scan, final test metrics |
+| `04_gradcam` | Grad-CAM on true and false positives |
 
-## Limitations
+Hardware: runs on a laptop CPU (notebook 04 reported `cpu`); training time was not recorded. Datasets and `.pth` weights are not committed (`.gitignore`).
 
-- Images are only 28×28, far less detail than real clinical X-rays.
-- The dataset is small and there is no external validation set.
-- The threshold of 0.80 is specific to this validation set; validation accuracy was much higher than test accuracy for the ResNet models (97.71% vs 84.62%), so the validation set may not match the test distribution well.
-- The gains from class weighting and from threshold selection were not evaluated separately.
-- Grad-CAM does not establish causal or clinically correct reasoning.
+## 8. References
 
-## Future Work
-
-- Compare 28×28, 64×64, and 128×128 inputs (ROC-AUC vs training time).
-- Add data augmentation and systematic hyperparameter tuning.
-- Try additional architectures and analyze more Grad-CAM error cases.
-- Evaluate probability calibration and validate on an external dataset.
-
-## Educational Disclaimer
-
-This project is for educational and research practice only. It is not a medical device, does not provide medical advice, and must not be used to diagnose pneumonia or make patient-care decisions.
+- Yang, J. et al. (2023). MedMNIST v2: a large-scale lightweight benchmark for 2D and 3D biomedical image classification. *Scientific Data*, 10, 41.
+- Kermany, D. S. et al. (2018). Identifying medical diagnoses and treatable diseases by image-based deep learning. *Cell*, 172(5), 1122–1131.
+- He, K., Zhang, X., Ren, S., Sun, J. (2016). Deep residual learning for image recognition. *CVPR*, 770–778.
+- Selvaraju, R. R. et al. (2017). Grad-CAM: visual explanations from deep networks via gradient-based localization. *ICCV*, 618–626.
